@@ -6,7 +6,7 @@
  *Submitted for verification at Etherscan.io on 2020-07-26
 */
 
-pragma solidity >=0.5.0;
+pragma solidity >=0.6.12;
 
 interface IERC20 {
     function totalSupply() external view returns (uint256);
@@ -19,11 +19,11 @@ interface IERC20 {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
-contract Context {
+abstract contract Context {
     constructor () internal { }
     // solhint-disable-previous-line no-empty-blocks
 
-    function _msgSender() internal view returns (address payable) {
+    function _msgSender() internal view virtual returns (address payable) {
         return msg.sender;
     }
 
@@ -138,7 +138,7 @@ contract ERC20 is Context, IERC20 {
     }
 }
 
-contract ERC20Detailed is IERC20 {
+abstract contract ERC20Detailed is IERC20 {
     string private _name;
     string private _symbol;
     uint8 private _decimals;
@@ -689,10 +689,9 @@ contract USDAVault is ERC20, ERC20Detailed {
   address public receiveFee;
   //address private constant USDC = 0x2791bca1f2de4661ed88a30c99a7a9449aa84174;
   //address private constant TITAN = 0xaaa5b9e6c589642f98a1cda99b9d024b8407285a;
-  address private constant USDC = 0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d;
-  address private constant TITAN = 0x9001ee054f1692fef3a48330cb543b6fec6287eb;
+  address private constant USDC = 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d;
+  address private constant TITAN = 0x9001eE054F1692feF3A48330cB543b6FEc6287eb;
   //mapping(address => uint256) public userInfo; // Info of each user that stakes LP tokens.
-  uint256 public totalSupply = 0;  
   IZap private  ZAP = IZap(address(0xF6E517eaAC466eED443Ae31D0CE625cC144cF1eb));
   uint256 public mintFee = 1;
   uint256 public mintFeeMax = 10000;
@@ -719,7 +718,7 @@ contract USDAVault is ERC20, ERC20Detailed {
         address _ZAP,
         address _AFIP,
         address _governance,
-        uint256 _strategy,
+        address _strategy,
         uint256 _mintFee
     ) public {
         require(msg.sender == governance, "!governance");
@@ -757,15 +756,15 @@ contract USDAVault is ERC20, ERC20Detailed {
       require(msg.sender == governance, "!governance");
       uint256 _bal = IERC20(USDC).balanceOf(address(this));
       _bal = _bal.mul(80).div(100);
-      USDC.safeTransfer(strategy, _bal);
-      IStrategy(strategy).earn(address(USDC), _bal);
+      SafeERC20.safeTransfer(IERC20(USDC), strategy, _bal);
+    //   IStrategy(strategy).earn(address(USDC), _bal);
       
   }
 
     function uninvest() public {
       require(msg.sender == governance, "!governance");
-      uint256 _withdraw = strategy(strategy).wantLockedTotal();
-      USDC.safeTransfer(strategy, _withdraw);
+      uint256 _withdraw = IStrategy(strategy).wantLockedTotal();
+      SafeERC20.safeTransfer(IERC20(USDC), strategy, _withdraw);
       IStrategy(strategy).withdraw(address(USDC), _withdraw);
       
   }
@@ -780,26 +779,25 @@ contract USDAVault is ERC20, ERC20Detailed {
       //strategy(strategy).earn(address(USDC), _bal);
       //Deposit to AAve
       AFIP.safeTransfer(msg.sender, userInfo[receiveFee].AFIP);
-      USDC.safeTransfer(msg.sender, userInfo[receiveFee].UDSC);
-      TITAN.safeTransfer(msg.sender, userInfo[receiveFee].TITAN);
+      SafeERC20.safeTransfer(IERC20(USDC), msg.sender, userInfo[receiveFee].UDSC);
+      SafeERC20.safeTransfer(IERC20(TITAN), msg.sender, userInfo[receiveFee].TITAN);
       userInfo[receiveFee].shares = 0;
   }
 
   function mint(uint256 _amount) external {
       require(_amount >0);
-      TransferHelper.safeTransferFrom(AFIP, msg.sender, address(this), _getAmount(AFIP, _amount));
+      AFIP.safeTransferFrom(msg.sender, address(this), _getAmount(address(AFIP), _amount));
       TransferHelper.safeTransferFrom(USDC, msg.sender, address(this), _amount);
       TransferHelper.safeTransferFrom(TITAN, msg.sender, address(this), _getAmount(TITAN, _amount));
       uint256 shares = _amount.mul(10).div(9);
      
       userInfo[msg.sender].shares += shares;
       userInfo[msg.sender].UDSC += _amount.mul(999).div(1000);
-      userInfo[msg.sender].AFIP += _getAmount(AFIP, _amount).mul(999).div(10000);
+      userInfo[msg.sender].AFIP += _getAmount(address(AFIP), _amount).mul(999).div(10000);
       userInfo[msg.sender].TITAN += _getAmount(TITAN, _amount).mul(999).div(10000);
       userInfo[receiveFee].UDSC += _amount.mul(1).div(1000);
-      userInfo[receiveFee].AFIP += _getAmount(AFIP, _amount).mul(1).div(10000);
+      userInfo[receiveFee].AFIP += _getAmount(address(AFIP), _amount).mul(1).div(10000);
       userInfo[receiveFee].TITAN += _getAmount(TITAN, _amount).mul(1).div(10000);
-      totalSupply += shares;
       _mint(msg.sender, shares);
   }
 
@@ -807,7 +805,7 @@ contract USDAVault is ERC20, ERC20Detailed {
   function withdraw(uint256 _shares) external {
       //uint r = (balance().mul(_shares)).div(totalSupply());
       require(userInfo[msg.sender].shares >=_shares && _shares > 0 );
-      if (_shares > totalSupply){_shares = totalSupply;}
+      if (_shares > totalSupply()){_shares = totalSupply();}
       
       
       // Check balance
@@ -824,17 +822,18 @@ contract USDAVault is ERC20, ERC20Detailed {
       uint256 _amount = _shares.mul(9).div(10);
       userInfo[msg.sender].shares -= _shares;
       userInfo[msg.sender].UDSC -= _amount;
-      userInfo[msg.sender].AFIP -= _getAmount(AFIP, _amount);
+      userInfo[msg.sender].AFIP -= _getAmount(address(AFIP), _amount);
       userInfo[msg.sender].TITAN -= _getAmount(TITAN, _amount);
       userInfo[receiveFee].UDSC += _amount.mul(1).div(1000);
-      userInfo[receiveFee].AFIP += _getAmount(AFIP, _amount).mul(1).div(10000);
+      userInfo[receiveFee].AFIP += _getAmount(address(AFIP), _amount).mul(1).div(10000);
       userInfo[receiveFee].TITAN += _getAmount(TITAN, _amount).mul(1).div(10000);
       
-      totalSupply -= _shares;   
+      _burn(msg.sender, _shares);
+      
 
-      AFIP.safeTransfer(msg.sender, _getAmount(AFIP, _amount).mul(999).div(10000));
-      USDC.safeTransfer(msg.sender, _amount.mul(999).div(1000));
-      TITAN.safeTransfer(msg.sender, _getAmount(TITAN, _amount).mul(999).div(10000));
+      AFIP.safeTransfer(msg.sender, _getAmount(address(AFIP), _amount).mul(999).div(10000));
+      IERC20(USDC).safeTransfer(msg.sender, _amount.mul(999).div(1000));
+      IERC20(TITAN).safeTransfer(msg.sender, _getAmount(TITAN, _amount).mul(999).div(10000));
       _burn(msg.sender, _shares);
   }
 
@@ -847,8 +846,8 @@ contract USDAVault is ERC20, ERC20Detailed {
   }
 
   function _getAmount(address _token, uint256 _amount) private view returns (uint256) {
-      if (_token == AFIP){ 
-          uint256 afipPrice = ZAP.priceFeed(AFIP);
+      if (_token == address(AFIP)){ 
+          uint256 afipPrice = ZAP.priceFeed(address(AFIP));
           return _amount.div(afipPrice.mul(10));
       }
       else if (_token == TITAN){
